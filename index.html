@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>2D-Attraktoren</title>
+    <link rel="icon" href="data:,">
+    <link href="style.css" rel="stylesheet">
+  </head>
+  <body>
+    <!-- werkbank: hochkant untereinander, quer Canvas links und Bedienung rechts (style.css) -->
+    <main class="seite werkbank">
+      <header class="projekt-kopf">
+        <h1>Spektogramm</h1>
+        <ul class="tags">
+          <li>Musik</li>
+          <li>ton</li>
+        </ul>
+      </header>
+
+      <div class="canvas-wrapper"><canvas id="bild"></canvas></div>
+      <div class="bedienung">
+        <div class="steuerung">
+          <label class="datei-knopf">Audio öffnen <input type="file" id="datei" accept="audio/*"></label>
+          <button type="button" id="startBtn">Start</button>
+        </div>
+        <audio id="spieler" controls></audio>
+      </div>
+    </main>
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
+

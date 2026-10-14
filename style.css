@@ -1,0 +1,241 @@
+@font-face {
+  font-family: "Special Elite";
+  src: url("fonts/SpecialElite-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+
+:root {
+  --bg: #111111;
+  --text: #dddddd;
+  color-scheme: dark;
+}
+
+* {
+  margin: 0; /* überall 0 damit ich selber sagen kann wo alles ist */
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg); /* background */
+  color: var(--text); /* textFarbe */
+  font-family: "Special Elite", "Courier New", monospace;
+}
+
+/* Platz zwischen Titel/Tags und dem Canvas darunter */
+.projekt-kopf {
+  margin-bottom: 2rem;
+}
+
+.projekt-kopf .meta {
+  opacity: 0.6;
+  margin-top: 0.25rem;
+} /* alles was die Klasse "meta" hat UND in "projekt-kopf" liegt soll dunkler sein */
+
+.seite {
+  max-width: 60rem; /* 60 mal die basic Schriftgröße */
+  margin: 0 auto;
+  padding: 5rem 1.5rem; /* (oben, unten) (left, right) */
+}
+/* margin platz zu anderen elementen */
+/* padding ist platz zum rand des eigenen elementes */
+
+.seite h1 {
+  font-size: clamp(2rem, 8vw, 4rem);
+  margin-bottom: 2rem;
+}
+/* unter der überschrift ist 2rem platz */
+/* hier soll der Tag mit wenig abstand und Rahmen */
+.tags {
+  list-style: none; /* keine Liste - kein Punkt davor */
+  display: flex; /* werden jetzt aneinander gereiht */
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0;
+}
+
+.tags li {
+  border: 1px solid currentColor; /* sehr nah an der schrift */
+  padding: 0.1rem 0.5rem; /* gibt in der Box (border) mehr platz */
+  font-size: 0.8rem;
+  opacity: 0.6;
+}
+
+/* Canvas */
+
+.canvas-wrapper {
+  --verhaeltnis: 1; /* Breite durch Höhe, beim Game of Life 4 / 3 */
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: var(--verhaeltnis);
+  cursor: crosshair;
+  touch-action: none; /* Finger ziehen und zoomen im Canvas, statt die Seite zu scrollen */
+}
+
+/* Steuerung */
+
+.steuerung {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.8rem 0;
+}
+
+.steuerung label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.steuerung button,
+.steuerung input {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid currentColor;
+}
+
+.steuerung button {
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+}
+
+.steuerung input {
+  width: 7.5rem;
+  padding: 0.3rem 0.5rem;
+}
+
+.steuerung input[type="checkbox"],
+.steuerung input[type="range"] {
+  width: auto;
+  border: none;
+  padding: 0;
+  accent-color: var(--text);
+}
+
+.steuerung button:hover,
+.steuerung button:focus-visible,
+.steuerung button[aria-pressed="true"] {
+  background: var(--text);
+  color: var(--bg);
+}
+
+/*
+Regler (range) mit Zahl: Text oben, darunter Regler über die ganze Breite,
+rechts daneben die Zahl mit fester Breite. So schiebt eine längere Zahl
+den Regler nicht hin und her, am Desktop und am Handy hochkant gleich.
+
+  Länge
+  ---------------------------  20000
+*/
+
+.steuerung label:has(> input[type="range"]) {
+  display: grid;
+  grid-template-columns: 1fr 5em; /* Regler bekommt den Rest, Zahl immer 5 Zeichen breit */
+  align-items: center;
+  column-gap: 0.75rem;
+  row-gap: 0.2rem;
+  flex: 1 1 100%; /* jede Regler-Zeile über die volle Breite */
+}
+
+/* der Text vor dem Regler landet von selbst in Zeile 1, Spalte 1 */
+.steuerung label > input[type="range"] {
+  grid-row: 2;
+  grid-column: 1;
+  width: 100%;
+}
+
+.steuerung label > output {
+  grid-row: 2;
+  grid-column: 2;
+  text-align: right;
+  font-variant-numeric: tabular-nums; /* alle Ziffern gleich breit, die Zahl zittert nicht */
+}
+
+/* Regler ohne Zahl: über beide Spalten */
+.steuerung label:not(:has(> output)) > input[type="range"] {
+  grid-column: 1 / -1;
+}
+
+/*
+Werkbank: Canvas links (zwei Drittel), Titel und Bedienung rechts
+gilt, sobald der Bildschirm breiter als hoch ist (Desktop, Handy quer)
+und nicht winzig. Hochkant bleibt alles untereinander.
+
+  ┌────────────────┬───────────┐
+  │                │ kopf      │
+  │     feld       ├───────────┤
+  │                │ bedienung │
+  └────────────────┴───────────┘
+*/
+
+@media (orientation: landscape) and (min-width: 40rem) {
+  .werkbank {
+    max-width: 120rem;
+    padding: 2rem 1.5rem;
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "feld kopf"
+      "feld bedienung";
+    column-gap: 2.5rem;
+    align-items: start; /* nicht strecken, damit sticky geht */
+  }
+
+  .werkbank .projekt-kopf {
+    grid-area: kopf;
+  }
+
+  .werkbank h1 {
+    font-size: clamp(1.5rem, 3vw, 2.5rem); /* rechts ist weniger Platz */
+    margin-bottom: 1rem;
+  }
+
+  .werkbank .projekt-kopf {
+    margin-bottom: 1rem;
+  }
+
+  /* der Wrapper ist so hoch wie der Bildschirm (minus Rand) und bleibt stehen,
+     der Canvas sitzt darin waagerecht und senkrecht in der Mitte */
+  .werkbank .canvas-wrapper {
+    grid-area: feld;
+    position: sticky; /* bleibt stehen, wenn man rechts scrollt */
+    top: 2rem;
+    height: calc(100vh - 4rem);
+    height: calc(100dvh - 4rem);
+    display: flex;
+    align-items: center; /* senkrecht mittig */
+    justify-content: center; /* waagerecht mittig */
+  }
+
+  .werkbank .bedienung {
+    grid-area: bedienung;
+  }
+
+  /* nie höher als der Bildschirm: Höhe = Breite / Verhältnis */
+  .werkbank canvas {
+    width: min(100%, calc((100vh - 4rem) * var(--verhaeltnis)));
+    width: min(100%, calc((100dvh - 4rem) * var(--verhaeltnis))); /* dvh: Handy-Adressleiste mitgerechnet, ältere Browser nehmen die Zeile drüber */
+    margin: 0 auto;
+  }
+
+  .werkbank .steuerung {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .werkbank .steuerung label {
+    justify-content: space-between; /* Text links, Feld rechts */
+  }
+
+  /* Häkchen gehören direkt vor ihren Text, nicht ans andere Ende */
+  .werkbank .steuerung label:has(> input[type="checkbox"]) {
+    justify-content: flex-start;
+  }
+}
+
