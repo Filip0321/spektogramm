@@ -2,6 +2,10 @@ const spieler = hole("spieler");
 const canvas = hole("bild");
 const ctx = canvas.getContext("2d");
 
+const MIN_FREQUENZ = 20;
+const MAX_FREQUENZ = 20000; 
+// Hörbereich des Menschen, ungefähr
+
 let audio = null; // AudioContext, erst nach dem Klick
 let analyser = null;
 let werte = null; // Uint8Array für die Lautstärken
@@ -35,13 +39,13 @@ hole("startBtn").addEventListener("click", () => {
   // die AudioQuelle (erstmal eine Datei über input)
   const meineAudio = audio.createMediaElementSource(spieler);
   analyser = audio.createAnalyser();
-  analyser.fftSize = 4096; // fft - Fast Fourier Transform
+  analyser.fftSize = 4096 * 4; // fft - Fast Fourier Transform
   // (wie viele Samples die FFT auf einmal anschaut, die Hälfte davon gibt es als Fächer)
 
   meineAudio.connect(analyser);
   analyser.connect(audio.destination);
-  // oder einfach quelle.connect(analyser).connect(audio.destination);
-  // connect gibt sein Ziel zurück (quelle.connect(analyser); -> gibt analyser zurück)
+  // oder einfach meineAudio.connect(analyser).connect(audio.destination);
+  // connect gibt sein Ziel zurück (meineAudio.connect(analyser); -> gibt analyser zurück)
 
   werte = new Uint8Array(analyser.frequencyBinCount);
   zeichne();
@@ -86,22 +90,39 @@ function farbenGenerieren() {
 
 farbenGenerieren(); // einmal beim Start, nicht in zeichne()
 
+function frequenz(i) {
+  return i * audio.sampleRate / analyser.fftSize;
+  // Fächer sind gleich breit (linear): Fach i liegt bei i mal Fachbreite
+}
+
+function frequenzZuY(f) {
+ const t = Math.log(f / MIN_FREQUENZ) / Math.log(MAX_FREQUENZ / MIN_FREQUENZ);
+  // 0 bei MIN_FREQUENZ, 1 bei MAX_FREQUENZ
+  return canvas.height * (1 - t);
+  // 1 - t, weil y im Canvas nach unten wächst, tiefe Töne sollen unten sein
+}
+
 function zeichne() {
   ctx.drawImage(canvas, -1, 0);
   // canvas auf sich selber versetzt um einen Pixel nach links malen
   analyser.getByteFrequencyData(werte);
   // befüllt jetzt die array mit werten von 0 - 255
   // je nachdem wie laut
-  // die eigentlichen dB levels sind in die 256 gleichen db-steps geteilt
-  const fachHoehe = canvas.height / werte.length;
-  for (let i = 0; i < werte.length; i++) {
+  // nur der Bereich minDecibels bis maxDecibels (Standard -100 bis -30 dB) wird auf 0–255 verteilt
+  for (let i = 1; i < werte.length; i++) {
+    // i = 0 wäre 0 Hz und würde keine zeichenbare frequenz liefern
+    // werte[i] sagt die Lautstärke der jeweiligen Frequenz
+    // da i so oft wie werte es gibt und werte die Anzahl der Bins (verschiedenen Frequenzen linear)
+    // kann man i mal frequenz (samplerate / wie viele frequenzen)
+    if (frequenz(i) > MAX_FREQUENZ) break;
+    if (frequenz(i + 1) < MIN_FREQUENZ) continue;
     ctx.fillStyle = farben[werte[i]]; 
-    // höhere werte werden heller (höhere Töne)
+    // lautere Fächer werden heller; welcher Ton es ist, sagt der Index i
     ctx.fillRect(
       canvas.width - 1, 
-      canvas.height - (i + 1) * fachHoehe, // im ersten Fach ist der tiefste Ton, also muss der nach unten
+      frequenzZuY(frequenz(i + 1)), // Oberkante: obere Grenze des Fachs (höhere Frequenz = weiter oben = kleineres y). 
       1,
-      fachHoehe
+      frequenzZuY(frequenz(i)) - frequenzZuY(frequenz(i + 1))
     );
   }
   requestAnimationFrame(zeichne);
