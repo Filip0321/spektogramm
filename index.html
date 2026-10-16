@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Spektogramm</title>
+    <title>Spektrogramm</title>
     <link rel="icon" href="data:,">
     <link href="style.css" rel="stylesheet">
   </head>
@@ -11,19 +11,31 @@
     <!-- werkbank: hochkant untereinander, quer Canvas links und Bedienung rechts (style.css) -->
     <main class="seite werkbank">
       <header class="projekt-kopf">
-        <h1>Spektogramm</h1>
+        <h1>Spektrogramm</h1>
         <ul class="tags">
           <li>Musik</li>
           <li>ton</li>
         </ul>
       </header>
 
-      <div class="canvas-wrapper"><canvas id="bild"></canvas></div>
+      <div class="canvas-wrapper">
+        <div class="spektro">
+          <canvas id="bild"></canvas>
+          <canvas id="skala"></canvas>  <!-- steht später im HTML, liegt also oben -->
+        </div>
+      </div>
+
       <div class="bedienung">
         <div class="steuerung">
           <label class="datei-knopf">Audio öffnen <input type="file" id="datei" accept="audio/*"></label>
           <button type="button" id="startBtn">Start</button>
         </div>
+        <label>Ansicht
+          <select id="ansicht">
+            <option value="spektrogramm">Spektrogramm</option>
+            <option value="spektrum">Spektrum</option>
+          </select>
+        </label>
         <audio id="spieler" controls></audio>
       </div>
     </main>

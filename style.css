@@ -239,3 +239,17 @@ und nicht winzig. Hochkant bleibt alles untereinander.
   }
 }
 
+.spektro {
+  position: relative;      /* Bezugspunkt für die beiden Canvas */
+  width: 100%;
+  aspect-ratio: 2 / 1;     /* oder eine feste Höhe, wie du willst */
+}
+.spektro canvas {
+  position: absolute;
+  inset: 0;                /* oben, rechts, unten, links = 0: füllt den Rahmen */
+  width: 100%;
+  height: 100%;
+}
+#skala {
+  pointer-events: none;    /* Klicks gehen durch zum Spektrogramm darunter */
+}
