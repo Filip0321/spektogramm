@@ -7,19 +7,48 @@ const ctx2 = canvas2.getContext("2d");
 
 const ansicht = hole("ansicht");
 
-const startBtn = hole("startBtn")
+const startBtn = hole("startBtn");
+
+const fftRegler = hole("fftRegler");
+const fftAnzeige = hole("fftAnzeige");
+const glaettung = hole("glaettung");
+const glaettungAnzeige = hole("glaettungAnzeige");
+
+// Elemente = die Regler selbst; ihre Zahl ist Number(element.value)
+const minDb = hole("minDb");
+const minDbAnzeige = hole("minDbAnzeige");
+const maxDb = hole("maxDb");
+const maxDbAnzeige = hole("maxDbAnzeige");
+
+const lautstaerke = hole("lautstaerke");
+const lautstaerkeAnzeige = hole("lautstaerkeAnzeige");
+
+const tiefen = hole("tiefen");
+const tiefenAnzeige = hole("tiefenAnzeige");
+const hoehen = hole("hoehen");
+const hoehenAnzeige = hole("hoehenAnzeige");
 
 const MIN_FREQUENZ = 20;
-const MAX_FREQUENZ = 20000; 
+const MAX_FREQUENZ = 20000;
 // Hörbereich des Menschen, ungefähr
 
 let audio = null; // AudioContext, erst nach dem Klick
 let analyser = null;
 let werte = null; // Uint8Array für die Lautstärken
-let grenzen = null;
 let anteile = null;
 let laufId = null;
+let verlauf = null;
+let verstaerker = null;
 
+// Nachschlagewerke: welche Fächer in welche Pixelspalte / Pixelzeile fallen
+let vonFach = null; // Int32Array: erstes Fach jeder Pixelspalte (Spektrum)
+let bisFach = null; // Int32Array: letztes Fach jeder Pixelspalte (Spektrum)
+let vonFachZeile = null; // Int32Array: erstes Fach jeder Pixelzeile (Spektrogramm)
+let bisFachZeile = null; // Int32Array: letztes Fach jeder Pixelzeile (Spektrogramm)
+
+let spalte = null; // ImageData: die neue Spalte ganz rechts im Spektrogramm, 1 Pixel breit
+
+const SKALA = [50, 100, 200, 500, 1000, 2000, 5000, 10000]; // feste Frequenzen in Hz
 // immer sinnvolle Hilfsfunktion
 //------------------------------------------------------
 function hole(id) {
@@ -38,9 +67,7 @@ function passeGroesseAn() {
   canvas2.width = Math.round(canvas2.clientWidth * dpr);
   canvas2.height = Math.round(canvas2.clientHeight * dpr);
   zeichneSkala(); // Größe setzen leert den Canvas, also gleich neu zeichnen
-  if (audio) {
-    berechneGrenzen();
-  }
+  if (audio) berechneTabellen(); // Spalten- und Zeilentabellen hängen von der Größe ab
 }
 //------------------------------------------------------
 
@@ -53,10 +80,10 @@ hole("datei").addEventListener("change", (event) => {
 startBtn.addEventListener("click", () => {
   if (!audio) baueAudioAuf(); // nur beim ersten Klick
   if (laufId === null) {
-    zeichne();                       // starten
+    zeichne(); // starten
     startBtn.textContent = "Stop";
   } else {
-    cancelAnimationFrame(laufId);    // anhalten
+    cancelAnimationFrame(laufId); // anhalten
     laufId = null;
     startBtn.textContent = "Start";
   }
@@ -67,36 +94,169 @@ function baueAudioAuf() {
 
   // die AudioQuelle (erstmal eine Datei über input)
   const meineAudio = audio.createMediaElementSource(spieler);
+  verstaerker = audio.createGain(); // Lautstärke der Ausgabe, Wert setzt setzeLautstaerke()
   analyser = audio.createAnalyser();
-  analyser.fftSize = 4096 * 4; // fft - Fast Fourier Transform
+  analyser.fftSize = fftGroesse(); // fft - Fast Fourier Transform
   // (wie viele Samples die FFT auf einmal anschaut, die Hälfte davon gibt es als Fächer)
-
-  meineAudio.connect(analyser);
-  analyser.connect(audio.destination);
-  // oder einfach meineAudio.connect(analyser).connect(audio.destination);
-  // connect gibt sein Ziel zurück (meineAudio.connect(analyser); -> gibt analyser zurück)
-
-  werte = new Uint8Array(analyser.frequencyBinCount);
-  // Fach (Bin): Ein Ergebnis der FFT, also ein Frequenzband mit seiner Lautstärke.
-  // frequencyBinCount: Wie viele Fächer herauskommen, nämlich fftSize / 2 = 8192.
-  anteile = new Float32Array(analyser.frequencyBinCount + 1);
-  grenzen = new Float32Array(analyser.frequencyBinCount + 1);
-  berechneAnteil();
-  berechneGrenzen();
+  analyser.smoothingTimeConstant = Number(glaettung.value);
+  setzeAnalyserDb(Number(minDb.value), Number(maxDb.value)); // Schwarz- und Weißpunkt
+  // Quelle → Analyser → Verstärker → Lautsprecher
+  // connect gibt sein Ziel zurück, deshalb lässt sich die Kette aneinanderhängen
+  meineAudio.connect().connect().connect(analyser).connect(verstaerker).connect(audio.destination);
+  setzeLautstaerke(); // Regler-Wert auf den Verstärker übernehmen
+  richteFaecherEin();
 }
 
 ansicht.addEventListener("change", () => {
   ctx.clearRect(0, 0, canvas.width, canvas.height); // Reste der alten Ansicht weg
+  zeichneSkala();
 });
 
-const farben = []; // 256 fertige Farbtexte, Index = Lautstärke 0–255
+// Regler liefert den Exponenten 11–15, fftSize muss eine Zweierpotenz sein
+function fftGroesse() {
+  return 2 ** Number(fftRegler.value); // value ist Text, Number macht eine Zahl daraus
+}
+
+function deutsch(zahl) {
+  return zahl.toLocaleString("de-DE", { maximumFractionDigits: 2 }); // 0.34 → "0,34"
+}
+
+function zeigeFft() {
+  fftAnzeige.textContent = fftGroesse();
+}
+
+function zeigeGlaettung() {
+  glaettungAnzeige.textContent = deutsch(Number(glaettung.value));
+}
+
+fftRegler.addEventListener("input", () => {
+  zeigeFft();
+  if (!analyser) return; // vor dem Start nur anzeigen, baueAudioAuf liest den Wert später
+  analyser.fftSize = fftGroesse();
+  richteFaecherEin(); // neue Fächerzahl: Listen und Tabellen neu
+});
+
+glaettung.addEventListener("input", () => {
+  zeigeGlaettung();
+  if (analyser) analyser.smoothingTimeConstant = Number(glaettung.value);
+});
+
+// Ein Reglerpaar, bei dem "unten" immer mindestens "abstand" unter "oben" bleibt
+// (dB-Bereich, Grenzen der Bänder). Gezogen wird einer, der ANDERE wird mitgeschoben.
+// Stößt der andere an sein Ende (min/max im HTML), wird stattdessen der gezogene gebremst.
+// Gibt die beiden Zahlen zurück.
+function haltePaar(unten, oben, abstand, gezogen) {
+  let u = Number(unten.value);
+  let o = Number(oben.value);
+  if (o - u < abstand) {
+    if (gezogen === unten) {
+      oben.value = u + abstand; // mitschieben (der Regler kappt selbst an seinem max)
+      o = Number(oben.value);
+      u = Math.min(u, o - abstand); // ging es nicht weit genug: gezogenen bremsen
+      unten.value = u;
+    } else {
+      unten.value = o - abstand;
+      u = Number(unten.value);
+      o = Math.max(o, u + abstand);
+      oben.value = o;
+    }
+  }
+  return [Number(unten.value), Number(oben.value)];
+}
+
+// Dezibel-Bereich: nur minDb bis maxDb wird auf 0–255 verteilt
+// minDb = Schwarzpunkt (leiser wird schwarz), maxDb = Weißpunkt (lauter wird hellgelb)
+const DB_ABSTAND = 10; // min muss mindestens so viel unter max bleiben
+
+function setzeDb(gezogen) {
+  const [min, max] = haltePaar(minDb, maxDb, DB_ABSTAND, gezogen);
+  minDbAnzeige.textContent = min;
+  maxDbAnzeige.textContent = max;
+  if (analyser) setzeAnalyserDb(min, max);
+}
+
+// Reihenfolge so wählen, dass min auch zwischendurch nie >= max ist,
+// sonst wirft der Browser einen Fehler (IndexSizeError)
+function setzeAnalyserDb(min, max) {
+  if (min < analyser.maxDecibels) {
+    analyser.minDecibels = min; // neues min passt unter das alte max
+    analyser.maxDecibels = max;
+  } else {
+    analyser.maxDecibels = max; // erst max hoch, sonst wäre min kurz über max
+    analyser.minDecibels = min;
+  }
+}
+
+minDb.addEventListener("input", () => setzeDb(minDb)); // übergeben wird das gezogene ELEMENT
+maxDb.addEventListener("input", () => setzeDb(maxDb));
+
+// Lautstärke der Ausgabe in dB; ändert nur, was man hört, nicht das Bild
+// (der Verstärker sitzt hinter dem Analyser)
+function setzeLautstaerke() {
+  const db = Number(lautstaerke.value);
+  lautstaerkeAnzeige.textContent = `${db > 0 ? "+" : ""}${db} dB`;
+  // dB → Faktor: +6 dB ≈ doppelte Amplitude, +20 dB = zehnfach, 0 dB = unverändert
+  if (verstaerker) verstaerker.gain.value = 10 ** (db / 20);
+}
+
+lautstaerke.addEventListener("input", setzeLautstaerke);
+
+// Grenzen der Bänder: Tiefen | Mitten | Höhen
+// Die Regler gehen von 0 bis 1 (Anteil auf der Log-Achse), daraus wird die Frequenz.
+// So liegen 20–200 Hz, 200–2000 Hz und 2–20 kHz je auf einem Drittel des Wegs.
+const GRENZ_ABSTAND = 0.05; // ≈ eine halbe Oktave Mindestabstand zwischen den Grenzen
+
+let grenzeTief = 250; // Hz, Tiefen | Mitten
+let grenzeHoch = 4000; // Hz, Mitten | Höhen
+
+// 250 → "250 Hz", 4000 → "4 kHz", 1234 → "1,2 kHz"
+function zeigeFrequenz(f) {
+  return f < 1000
+    ? `${Math.round(f)} Hz`
+    : `${deutsch(Math.round(f / 100) / 10)} kHz`;
+}
+
+function setzeGrenzen(gezogen) {
+  const [unten, oben] = haltePaar(tiefen, hoehen, GRENZ_ABSTAND, gezogen);
+  grenzeTief = anteilZuFrequenz(unten);
+  grenzeHoch = anteilZuFrequenz(oben);
+  tiefenAnzeige.textContent = zeigeFrequenz(grenzeTief);
+  hoehenAnzeige.textContent = zeigeFrequenz(grenzeHoch);
+  // hier kommen später dazu: Markierung neu zeichnen, Filter umstellen
+  zeichneSkala();
+}
+
+tiefen.addEventListener("input", () => setzeGrenzen(tiefen));
+hoehen.addEventListener("input", () => setzeGrenzen(hoehen));
+
+// beim Laden einmal alles anzeigen
+zeigeFft();
+zeigeGlaettung();
+setzeDb(minDb);
+setzeLautstaerke();
+tiefen.value = frequenzZuAnteil(250); // Startwerte: übliche Einteilung (Mischpult, EQ)
+hoehen.value = frequenzZuAnteil(4000);
+setzeGrenzen(tiefen);
+
+function richteFaecherEin() {
+  werte = new Uint8Array(analyser.frequencyBinCount);
+  // Fach (Bin): Ein Ergebnis der FFT, also ein Frequenzband mit seiner Lautstärke.
+  // frequencyBinCount: Wie viele Fächer herauskommen, nämlich fftSize / 2
+  anteile = new Float32Array(analyser.frequencyBinCount + 1);
+  berechneAnteil();
+  berechneTabellen();
+}
+
+// Farbskala als Zahlen: für jeden Wert 0–255 drei Zahlen r, g, b hintereinander
+// (Zahlen statt Text, weil das Spektrogramm die Pixel direkt schreibt)
+const farbenZahlen = new Uint8Array(256 * 3);
 
 const ANKER = [
-  [0, 0, 4],        // 0.00  fast schwarz
-  [87, 16, 110],    // 0.25  dunkelviolett
-  [188, 55, 84],    // 0.50  rot-pink
-  [249, 142, 9],    // 0.75  orange
-  [252, 255, 164],  // 1.00  hellgelb
+  [0, 0, 4], // 0.00  fast schwarz
+  [87, 16, 110], // 0.25  dunkelviolett
+  [188, 55, 84], // 0.50  rot-pink
+  [249, 142, 9], // 0.75  orange
+  [252, 255, 164], // 1.00  hellgelb
 ];
 
 // wie mix() in GLSL: t = 0 gibt a, t = 1 gibt b, dazwischen anteilig
@@ -107,7 +267,7 @@ function mische(a, b, t) {
 function farbenGenerieren() {
   for (let v = 0; v < 256; v++) {
     // v (0–255) auf die Anker-Strecke umrechnen: 0 bis 4 bei 5 Ankern
-    const position = v / 255 * (ANKER.length - 1);
+    const position = (v / 255) * (ANKER.length - 1);
 
     // ab welchem Anker gemischt wird; höchstens der vorletzte,
     // sonst gäbe es bei v = 255 kein ANKER[i + 1]
@@ -118,36 +278,37 @@ function farbenGenerieren() {
 
     const von = ANKER[i];
     const bis = ANKER[i + 1];
-    const r = Math.round(mische(von[0], bis[0], t));
-    const g = Math.round(mische(von[1], bis[1], t));
-    const b = Math.round(mische(von[2], bis[2], t));
-
-    farben.push(`rgb(${r}, ${g}, ${b})`);
+    farbenZahlen[v * 3] = Math.round(mische(von[0], bis[0], t)); // rot
+    farbenZahlen[v * 3 + 1] = Math.round(mische(von[1], bis[1], t)); // grün
+    farbenZahlen[v * 3 + 2] = Math.round(mische(von[2], bis[2], t)); // blau
   }
 }
 
 farbenGenerieren(); // einmal beim Start, nicht in zeichne()
 
 function frequenz(i) {
-  return i * audio.sampleRate / analyser.fftSize;
+  return (i * audio.sampleRate) / analyser.fftSize;
   // Fächer sind gleich breit (linear): Fach i liegt bei i mal Fachbreite
-  // sample rate ist wieviele samples pro sekunde gemessen werden (hier 48.000)
+  // sample rate ist wieviele samples pro sekunde gemessen werden (z. B. 48.000)
   // fftSize - Wie viele Samples die FFT auf einmal anschaut
-  // hier: 16384 Samples, also 16384 / 48.000 = 0,34 s Ton
+  // beim Standard 16384 Samples, also 16384 / 48.000 = 0,34 s Ton (richtet sich nach dem Regler)
   // Die höchste Frequenz, die man überhaupt messen kann: sampleRate / 2 = 24.000 Hz (braucht berg und tal)
-  // Fachbreite: Die 24.000 Hz bis zur Nyquist-Frequenz, verteilt auf 8192 Fächer
+  // Fachbreite: Die 24.000 Hz bis zur Nyquist-Frequenz, verteilt auf fftSize / 2 Fächer
   // also (sampleRate / 2) / (fftSize / 2) = sampleRate / fftSize
 }
 
 function frequenzZuAnteil(f) {
- return Math.log(f / MIN_FREQUENZ) / Math.log(MAX_FREQUENZ / MIN_FREQUENZ);
+  return Math.log(f / MIN_FREQUENZ) / Math.log(MAX_FREQUENZ / MIN_FREQUENZ);
   // 0 bei MIN_FREQUENZ, 1 bei MAX_FREQUENZ
 }
 
-const SKALA = [50, 100, 200, 500, 1000, 2000, 5000, 10000]; // feste Frequenzen in Hz
+// Umkehrung von frequenzZuAnteil (Potenz statt Logarithmus): 0 → MIN, 1 → MAX
+function anteilZuFrequenz(anteil) {
+  return MIN_FREQUENZ * (MAX_FREQUENZ / MIN_FREQUENZ) ** anteil;
+}
 
 function beschriftung(f) {
-  return `${f.toLocaleString("de-DE")} Hz`;
+  return f < 1000 ? `${f}` : `${f / 1000}k`;
 }
 
 function zeichneSkala() {
@@ -155,34 +316,89 @@ function zeichneSkala() {
   ctx2.font = `${12 * dpr}px monospace`;
   ctx2.textBaseline = "bottom"; // Text steht auf der Linie, nicht durchgestrichen
 
+  const aTief = frequenzZuAnteil(grenzeTief);
+  const aHoch = frequenzZuAnteil(grenzeHoch);
+
+  // [von, bis, farbe]: Anteile auf der Log-Achse, 0 = 20 Hz, 1 = 20 kHz
+  const BAENDER = [
+    [0, aTief, "rgba(70, 110, 255, 0.13)"],    // Tiefen: blau
+    [aTief, aHoch, "rgba(70, 220, 120, 0.10)"], // Mitten: grün
+    [aHoch, 1, "rgba(221, 221, 221, 0.07)"],    // Höhen: hell
+  ];
+
+  for (const [von, bis, farbe] of BAENDER) {
+    ctx2.fillStyle = farbe;
+    if (ansicht.value === "spektrogramm") {
+      // tiefe Töne unten: das obere Ende des Bands ist das kleinere y
+      const yOben = canvas2.height * (1 - bis);
+      const yUnten = canvas2.height * (1 - von);
+      ctx2.fillRect(0, yOben, canvas2.width, yUnten - yOben);
+    } else {
+      ctx2.fillRect(canvas2.width * von, 0, canvas2.width * (bis - von), canvas2.height);
+    }
+  }
+
   for (const f of SKALA) {
-    const y = Math.round(canvas2.height * (1 - frequenzZuAnteil(f)));
+    const anteil = frequenzZuAnteil(f);
+    const text = beschriftung(f);
 
-    ctx2.fillStyle = "rgba(221, 221, 221, 0.3)"; // Linie schwach
-    ctx2.fillRect(0, y, canvas2.width, 1);
-
-    ctx2.fillStyle = "rgba(221, 221, 221, 0.9)"; // Zahl deutlich
-    ctx2.fillText(beschriftung(f), 4 * dpr, y - 2 * dpr);
+    if (ansicht.value === "spektrogramm") {
+      const y = Math.round(canvas2.height * (1 - anteil));
+      ctx2.fillStyle = "rgba(221, 221, 221, 0.3)";
+      ctx2.fillRect(0, y, canvas2.width, 1); // waagerechte Linie
+      ctx2.fillStyle = "rgba(221, 221, 221, 0.9)";
+      ctx2.fillText(text, 4 * dpr, y - 2 * dpr); // Zahl links über der Linie
+    } else {
+      const x = Math.round(canvas2.width * anteil);
+      ctx2.fillStyle = "rgba(221, 221, 221, 0.3)";
+      ctx2.fillRect(x, 0, 1, canvas2.height); // senkrechte Linie
+      ctx2.fillStyle = "rgba(221, 221, 221, 0.9)";
+      ctx2.fillText(text, x + 3 * dpr, canvas2.height - 4 * dpr); // Zahl unten rechts neben der Linie
+    }
   }
 }
 
-let erstesFach = 1;
-let letztesFach = 0;
-
-function berechneGrenzen() {
-  for (let i = 0; i < grenzen.length; i++) {
-    grenzen[i] = canvas.height * (1 - anteile[i]);
-    // 1 - Anteil, weil y nach unten wächst: tiefe Töne unten
-  }
+// läuft, wenn sich Größe oder fftSize ändern, nicht in jedem Bild
+function berechneTabellen() {
   const fachbreite = audio.sampleRate / analyser.fftSize;
+  const letztes = werte.length - 1;
+  const verhaeltnis = MAX_FREQUENZ / MIN_FREQUENZ;
 
-  // erstes Fach, dessen Oberkante über MIN liegt:
-  // (i + 1) * fachbreite > MIN ->  i > MIN / fachbreite - 1
-  erstesFach = Math.max(1, Math.floor(MIN_FREQUENZ / fachbreite));
+  // Umkehrung des Logarithmus (Potenz): Position auf der Achse -> Frequenz.
+  // Die Pixel sind auf der Log-Achse gleich verteilt, die Fächer linear.
+  // Bei tiefen Tönen ist ein Fach größer als ein Pixel, bei hohen liegen viele Fächer auf einem Pixel.
+  // Beim Zeichnen nehmen wir pro Pixel das lauteste Fach.
 
-  // letztes Fach, dessen Unterkante noch unter MAX liegt:
-  // i * fachbreite <= MAX  ->  i <= MAX / fachbreite
-  letztesFach = Math.min(werte.length - 1, Math.floor(MAX_FREQUENZ / fachbreite));
+  // Spektrum: Spalten von links (MIN) nach rechts (MAX)
+  const breite = canvas.width;
+  vonFach = new Int32Array(breite);
+  bisFach = new Int32Array(breite);
+  for (let x = 0; x < breite; x++) {
+    const fLinks = MIN_FREQUENZ * verhaeltnis ** (x / breite);
+    const fRechts = MIN_FREQUENZ * verhaeltnis ** ((x + 1) / breite);
+    vonFach[x] = Math.floor(fLinks / fachbreite);
+    bisFach[x] = Math.min(Math.floor(fRechts / fachbreite), letztes);
+  }
+
+  // Spektrogramm: Zeilen von oben (MAX) nach unten (MIN), deshalb 1 - ...
+  const hoehe = canvas.height;
+  vonFachZeile = new Int32Array(hoehe);
+  bisFachZeile = new Int32Array(hoehe);
+  for (let y = 0; y < hoehe; y++) {
+    const fOben = MIN_FREQUENZ * verhaeltnis ** (1 - y / hoehe); // Oberkante der Zeile = höhere Frequenz
+    const fUnten = MIN_FREQUENZ * verhaeltnis ** (1 - (y + 1) / hoehe); // Unterkante = tiefere Frequenz
+    vonFachZeile[y] = Math.floor(fUnten / fachbreite);
+    bisFachZeile[y] = Math.min(Math.floor(fOben / fachbreite), letztes);
+  }
+
+  // eine leere Pixelspalte, 1 breit und so hoch wie der Canvas, jedes Bild neu befüllt
+  spalte = ctx.createImageData(1, hoehe);
+
+  verlauf = ctx.createLinearGradient(0, hoehe, 0, 0); // von unten nach oben
+  for (let n = 0; n < ANKER.length; n++) {
+    const [r, g, b] = ANKER[n]; // die drei Zahlen der Liste direkt in drei Variablen
+    verlauf.addColorStop(n / (ANKER.length - 1), `rgb(${r}, ${g}, ${b})`);
+  }
 }
 
 function berechneAnteil() {
@@ -193,45 +409,53 @@ function berechneAnteil() {
   }
 }
 
+// das lauteste Fach zwischen von und bis (beide eingeschlossen)
+function lautestes(von, bis) {
+  let lautester = 0;
+  for (let i = von; i <= bis; i++) {
+    if (werte[i] > lautester) lautester = werte[i];
+  }
+  return lautester;
+}
+
 function zeichneSpektrogramm() {
   ctx.drawImage(canvas, -1, 0);
   // canvas auf sich selber versetzt um einen Pixel nach links malen
-  for (let i = erstesFach; i <= letztesFach; i++) {
-    // i = 0 wäre 0 Hz und würde keine zeichenbare frequenz liefern
-    // werte[i] sagt die Lautstärke der jeweiligen Frequenz
-    // da i so oft wie werte es gibt und werte die Anzahl der Bins (verschiedenen Frequenzen linear)
-    // kann man i mal frequenz (Fachbreite)
-    ctx.fillStyle = farben[werte[i]]; 
-    // lautere Fächer werden heller; welcher Ton es ist, sagt der Index i
-    const yOben  = grenzen[i + 1];
-    const yUnten = grenzen[i];
-    ctx.fillRect(
-      canvas.width - 1, 
-      yOben, // Oberkante: obere Grenze des Fachs (höhere Frequenz = weiter oben = kleineres y). 
-      1,
-      yUnten - yOben
-    );
+
+  const pixel = spalte.data; // Uint8ClampedArray: pro Pixel 4 Zahlen (rot, grün, blau, deckkraft)
+  for (let y = 0; y < spalte.height; y++) {
+    const wert = lautestes(vonFachZeile[y], bisFachZeile[y]); // 0–255, lauter = heller
+    const p = y * 4; // wo das Pixel dieser Zeile in der Liste anfängt
+    const f = wert * 3; // wo die Farbe dieses Werts in farbenZahlen anfängt
+    pixel[p] = farbenZahlen[f];
+    pixel[p + 1] = farbenZahlen[f + 1];
+    pixel[p + 2] = farbenZahlen[f + 2];
+    pixel[p + 3] = 255; // voll deckend
   }
+  ctx.putImageData(spalte, canvas.width - 1, 0); // EIN Aufruf für die ganze Spalte
 }
 
 function zeichneSpektrum() {
   ctx.fillStyle = "#111111";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  for (let i = erstesFach; i <= letztesFach; i++) {
-    ctx.fillStyle = farben[werte[i]]; 
-    ctx.fillRect(
-      anteile[i] * canvas.width, 
-      canvas.height - werte[i],
-      (anteile[i + 1] - anteile[i]) * canvas.width,
-      werte[i] / 255 * canvas.height
-    );
+  ctx.beginPath(); // EINMAL: neuer Pfad
+  ctx.moveTo(0, canvas.height); // unten links anfangen
+
+  for (let x = 0; x < canvas.width; x++) {
+    const hoehe = (lautestes(vonFach[x], bisFach[x]) / 255) * canvas.height; // 0–255 -> Pixel
+    ctx.lineTo(x, canvas.height - hoehe); // pro Spalte nur einen Punkt anhängen
   }
+
+  ctx.lineTo(canvas.width, canvas.height); // unten rechts
+  ctx.closePath(); // zurück nach unten links
+  ctx.fillStyle = verlauf;
+  ctx.fill(); // EINMAL füllen
 }
 
 function zeichne() {
   analyser.getByteFrequencyData(werte);
-  // befüllt jetzt die array mit werten von 0 - 255
+  // befüllt jetzt das Array mit Werten von 0 - 255
   // je nachdem wie laut
   // nur der Bereich minDecibels bis maxDecibels (Standard -100 bis -30 dB) wird auf 0–255 verteilt
   if (ansicht.value === "spektrogramm") zeichneSpektrogramm();
@@ -239,6 +463,5 @@ function zeichne() {
   laufId = requestAnimationFrame(zeichne); // die einzige Stelle mit rAF
 }
 
-// console.log(farben.length);
 const beobachter = new ResizeObserver(passeGroesseAn);
 beobachter.observe(canvas);
