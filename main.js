@@ -1,3 +1,5 @@
+import { macheDrehknopf } from "./knopfRegler.js";
+
 const spieler = hole("spieler");
 const canvas = hole("bild");
 const ctx = canvas.getContext("2d");
@@ -14,7 +16,7 @@ const fftAnzeige = hole("fftAnzeige");
 const glaettung = hole("glaettung");
 const glaettungAnzeige = hole("glaettungAnzeige");
 
-// Elemente = die Regler selbst; ihre Zahl ist Number(element.value)
+// ihre Zahl der Regler ist dann Number(element.value)
 const minDb = hole("minDb");
 const minDbAnzeige = hole("minDbAnzeige");
 const maxDb = hole("maxDb");
@@ -27,18 +29,35 @@ const tiefen = hole("tiefen");
 const tiefenAnzeige = hole("tiefenAnzeige");
 const hoehen = hole("hoehen");
 const hoehenAnzeige = hole("hoehenAnzeige");
+const hoeren = hole("hoeren"); // Auswahl: alles / tiefen / mitten / hoehen
+
+const wrapper = hole("feld"); // der Rahmen um beide Canvas, bekommt Klassen fürs Seitenverhältnis
+const spektrumOben = hole("spektrumOben"); // Häkchen: beim Wasserfall das Spektrum darüber
+const spektrumObenLabel = hole("spektrumObenLabel"); // nur beim Wasserfall sichtbar
+
+// Anteil der Canvas-Höhe für das Spektrum über dem Wasserfall.
+// Das CSS macht den Rahmen dann 1,25-mal so hoch (style.css, .mit-spektrum),
+// so bleibt der Wasserfall genauso groß wie ohne: 0,25 / 1,25 = 0,2
+const OBEN_ANTEIL = 0.2;
+let oben = 0; // Höhe des Spektrum-Bereichs in Pixeln, 0 = kein Spektrum oben
 
 const MIN_FREQUENZ = 20;
 const MAX_FREQUENZ = 20000;
 // Hörbereich des Menschen, ungefähr
+
+const ZIEH_WEG = 180; // Pixel für den ganzen Bereich
+const FEIN = 10; // mit Shift braucht man den zehnfachen Weg
 
 let audio = null; // AudioContext, erst nach dem Klick
 let analyser = null;
 let werte = null; // Uint8Array für die Lautstärken
 let anteile = null;
 let laufId = null;
-let verlauf = null;
+let verlauf = null; // Farbverlauf über die ganze Höhe (Spektrum allein)
+let verlaufOben = null; // Farbverlauf nur über den Bereich oben (Spektrum über dem Wasserfall)
 let verstaerker = null;
+let hochpaesse = []; // zwei Hochpässe hintereinander: lassen nur durch, was ÜBER ihrer Frequenz liegt
+let tiefpaesse = []; // zwei Tiefpässe hintereinander: lassen nur durch, was UNTER ihrer Frequenz liegt
 
 // Nachschlagewerke: welche Fächer in welche Pixelspalte / Pixelzeile fallen
 let vonFach = null; // Int32Array: erstes Fach jeder Pixelspalte (Spektrum)
@@ -47,8 +66,10 @@ let vonFachZeile = null; // Int32Array: erstes Fach jeder Pixelzeile (Spektrogra
 let bisFachZeile = null; // Int32Array: letztes Fach jeder Pixelzeile (Spektrogramm)
 
 let spalte = null; // ImageData: die neue Spalte ganz rechts im Spektrogramm, 1 Pixel breit
+let zeile = null; // ImageData: die neue Zeile ganz oben im Wasserfall, 1 Pixel hoch
 
 const SKALA = [50, 100, 200, 500, 1000, 2000, 5000, 10000]; // feste Frequenzen in Hz
+
 // immer sinnvolle Hilfsfunktion
 //------------------------------------------------------
 function hole(id) {
@@ -92,7 +113,7 @@ startBtn.addEventListener("click", () => {
 function baueAudioAuf() {
   audio = new AudioContext();
 
-  // die AudioQuelle (erstmal eine Datei über input)
+  // die AudioQuelle 
   const meineAudio = audio.createMediaElementSource(spieler);
   verstaerker = audio.createGain(); // Lautstärke der Ausgabe, Wert setzt setzeLautstaerke()
   analyser = audio.createAnalyser();
@@ -100,17 +121,46 @@ function baueAudioAuf() {
   // (wie viele Samples die FFT auf einmal anschaut, die Hälfte davon gibt es als Fächer)
   analyser.smoothingTimeConstant = Number(glaettung.value);
   setzeAnalyserDb(Number(minDb.value), Number(maxDb.value)); // Schwarz- und Weißpunkt
-  // Quelle → Analyser → Verstärker → Lautsprecher
+  // je zwei gleiche Filter hintereinander: doppelt so steil (24 statt 12 dB pro Oktave)
+  hochpaesse = [baueFilter("highpass"), baueFilter("highpass")];
+  tiefpaesse = [baueFilter("lowpass"), baueFilter("lowpass")];
+
+  // Quelle -> 2 Hochpässe -> 2 Tiefpässe -> Analyser -> Verstärker -> Lautsprecher
+  // Filter VOR dem Analyser: man sieht nur, was man hört
   // connect gibt sein Ziel zurück, deshalb lässt sich die Kette aneinanderhängen
-  meineAudio.connect().connect().connect(analyser).connect(verstaerker).connect(audio.destination);
+  meineAudio
+    .connect(hochpaesse[0])
+    .connect(hochpaesse[1])
+    .connect(tiefpaesse[0])
+    .connect(tiefpaesse[1])
+    .connect(analyser)
+    .connect(verstaerker)
+    .connect(audio.destination);
   setzeLautstaerke(); // Regler-Wert auf den Verstärker übernehmen
+  setzeFilter(); // gewähltes Band auf die Filter übernehmen
   richteFaecherEin();
 }
 
-ansicht.addEventListener("change", () => {
+// Ansicht oder Häkchen geändert: Klassen am Rahmen setzen (CSS ändert damit das
+// Seitenverhältnis, der ResizeObserver passt danach die Canvas an), Reste wegräumen
+function wechsleAnsicht() {
+  const wasserfall = ansicht.value === "wasserfall";
+  wrapper.classList.toggle("wasserfall", wasserfall); // toggle(name, an): Klasse an oder aus
+  wrapper.classList.toggle("mit-spektrum", wasserfall && spektrumOben.checked);
+  spektrumObenLabel.hidden = !wasserfall; // Häkchen nur beim Wasserfall zeigen
+
+  oben =
+    wasserfall && spektrumOben.checked
+      ? Math.round(canvas.height * OBEN_ANTEIL)
+      : 0;
+  if (audio) verlaufOben = baueVerlauf(oben);
+  // ändert sich dadurch die Größe, rechnet passeGroesseAn -> berechneTabellen beides gleich neu
   ctx.clearRect(0, 0, canvas.width, canvas.height); // Reste der alten Ansicht weg
   zeichneSkala();
-});
+}
+
+ansicht.addEventListener("change", wechsleAnsicht); // einfach die Skala neu zeichnen
+spektrumOben.addEventListener("change", wechsleAnsicht);
 
 // Regler liefert den Exponenten 11–15, fftSize muss eine Zweierpotenz sein
 function fftGroesse() {
@@ -161,6 +211,10 @@ function haltePaar(unten, oben, abstand, gezogen) {
       oben.value = o;
     }
   }
+  // value direkt setzen löst kein input-Event aus, also die Knöpfe selbst nachziehen.
+  // ?.() ruft nur auf, wenn es die Funktion gibt (Regler ohne Knopf: nichts passiert)
+  unten.aktualisiereKnopf?.();
+  oben.aktualisiereKnopf?.();
   return [Number(unten.value), Number(oben.value)];
 }
 
@@ -195,7 +249,7 @@ maxDb.addEventListener("input", () => setzeDb(maxDb));
 function setzeLautstaerke() {
   const db = Number(lautstaerke.value);
   lautstaerkeAnzeige.textContent = `${db > 0 ? "+" : ""}${db} dB`;
-  // dB → Faktor: +6 dB ≈ doppelte Amplitude, +20 dB = zehnfach, 0 dB = unverändert
+  // dB -> Faktor: +6 dB ≈ doppelte Amplitude, +20 dB = zehnfach, 0 dB = unverändert
   if (verstaerker) verstaerker.gain.value = 10 ** (db / 20);
 }
 
@@ -209,7 +263,7 @@ const GRENZ_ABSTAND = 0.05; // ≈ eine halbe Oktave Mindestabstand zwischen den
 let grenzeTief = 250; // Hz, Tiefen | Mitten
 let grenzeHoch = 4000; // Hz, Mitten | Höhen
 
-// 250 → "250 Hz", 4000 → "4 kHz", 1234 → "1,2 kHz"
+// 250 -> "250 Hz", 4000 -> "4 kHz", 1234 -> "1,2 kHz"
 function zeigeFrequenz(f) {
   return f < 1000
     ? `${Math.round(f)} Hz`
@@ -222,21 +276,50 @@ function setzeGrenzen(gezogen) {
   grenzeHoch = anteilZuFrequenz(oben);
   tiefenAnzeige.textContent = zeigeFrequenz(grenzeTief);
   hoehenAnzeige.textContent = zeigeFrequenz(grenzeHoch);
-  // hier kommen später dazu: Markierung neu zeichnen, Filter umstellen
-  zeichneSkala();
+  zeichneSkala(); // Bänder neu markieren
+  setzeFilter(); // wenn ein Band gehört wird: Filter mitziehen
 }
 
 tiefen.addEventListener("input", () => setzeGrenzen(tiefen));
 hoehen.addEventListener("input", () => setzeGrenzen(hoehen));
 
-// beim Laden einmal alles anzeigen
-zeigeFft();
-zeigeGlaettung();
-setzeDb(minDb);
-setzeLautstaerke();
-tiefen.value = frequenzZuAnteil(250); // Startwerte: übliche Einteilung (Mischpult, EQ)
-hoehen.value = frequenzZuAnteil(4000);
-setzeGrenzen(tiefen);
+// Welches Band man hört (und sieht): Hochpass + Tiefpass, vier Einstellungen
+const GANZ_UNTEN = 10; // Hz, Hochpass so tief, dass er nichts Hörbares wegnimmt
+
+// Q bei Hoch-/Tiefpass ist in Web Audio in dB angegeben.
+// -3 dB entspricht dem "Butterworth"-Filter: ohne Buckel an der Grenze.
+// Zwei davon hintereinander ergeben zusammen genau -6 dB an der Grenze, so passen
+// die Bänder sauber aneinander (heißt "Linkwitz-Riley", so trennen auch Lautsprecherweichen).
+const BUTTERWORTH_Q = -3.01;
+
+function baueFilter(typ) {
+  const filter = audio.createBiquadFilter();
+  filter.type = typ;
+  filter.Q.value = BUTTERWORTH_Q;
+  return filter;
+}
+
+function setzeFilter() {
+  if (!hochpaesse.length) return; // vor dem Start gibt es noch keine Filter
+  const ganzOben = audio.sampleRate / 2; // höchste mögliche Frequenz (Nyquist)
+
+  // Nachschlagen statt if-Kette: zu jedem Modus [Hochpass bei, Tiefpass bei]
+  const EINSTELLUNG = {
+    alles: [GANZ_UNTEN, ganzOben],
+    tiefen: [GANZ_UNTEN, grenzeTief],
+    mitten: [grenzeTief, grenzeHoch],
+    hoehen: [grenzeHoch, ganzOben],
+  };
+  const [unten, oben] = EINSTELLUNG[hoeren.value];
+
+  // sanft hingleiten (~10 ms) statt hart umsetzen, sonst knackt es beim Ziehen
+  for (const filter of hochpaesse)
+    filter.frequency.setTargetAtTime(unten, audio.currentTime, 0.01);
+  for (const filter of tiefpaesse)
+    filter.frequency.setTargetAtTime(oben, audio.currentTime, 0.01);
+}
+
+hoeren.addEventListener("change", setzeFilter);
 
 function richteFaecherEin() {
   werte = new Uint8Array(analyser.frequencyBinCount);
@@ -284,8 +367,6 @@ function farbenGenerieren() {
   }
 }
 
-farbenGenerieren(); // einmal beim Start, nicht in zeichne()
-
 function frequenz(i) {
   return (i * audio.sampleRate) / analyser.fftSize;
   // Fächer sind gleich breit (linear): Fach i liegt bei i mal Fachbreite
@@ -321,9 +402,9 @@ function zeichneSkala() {
 
   // [von, bis, farbe]: Anteile auf der Log-Achse, 0 = 20 Hz, 1 = 20 kHz
   const BAENDER = [
-    [0, aTief, "rgba(70, 110, 255, 0.13)"],    // Tiefen: blau
+    [0, aTief, "rgba(70, 110, 255, 0.13)"], // Tiefen: blau
     [aTief, aHoch, "rgba(70, 220, 120, 0.10)"], // Mitten: grün
-    [aHoch, 1, "rgba(221, 221, 221, 0.07)"],    // Höhen: hell
+    [aHoch, 1, "rgba(221, 221, 221, 0.07)"], // Höhen: hell
   ];
 
   for (const [von, bis, farbe] of BAENDER) {
@@ -334,7 +415,12 @@ function zeichneSkala() {
       const yUnten = canvas2.height * (1 - von);
       ctx2.fillRect(0, yOben, canvas2.width, yUnten - yOben);
     } else {
-      ctx2.fillRect(canvas2.width * von, 0, canvas2.width * (bis - von), canvas2.height);
+      ctx2.fillRect(
+        canvas2.width * von,
+        0,
+        canvas2.width * (bis - von),
+        canvas2.height,
+      );
     }
   }
 
@@ -391,14 +477,28 @@ function berechneTabellen() {
     bisFachZeile[y] = Math.min(Math.floor(fOben / fachbreite), letztes);
   }
 
-  // eine leere Pixelspalte, 1 breit und so hoch wie der Canvas, jedes Bild neu befüllt
+  // leere Pixelspalte (Spektrogramm) und Pixelzeile (Wasserfall), jedes Bild neu befüllt
   spalte = ctx.createImageData(1, hoehe);
+  zeile = ctx.createImageData(breite, 1);
 
-  verlauf = ctx.createLinearGradient(0, hoehe, 0, 0); // von unten nach oben
+  // Bereich fürs Spektrum über dem Wasserfall hängt von der Höhe ab, also hier neu
+  oben =
+    ansicht.value === "wasserfall" && spektrumOben.checked
+      ? Math.round(hoehe * OBEN_ANTEIL)
+      : 0;
+
+  verlauf = baueVerlauf(hoehe);
+  verlaufOben = baueVerlauf(oben);
+}
+
+// Farbverlauf der Farbskala von unten (y = hoehe, schwarz) nach oben (y = 0, hellgelb)
+function baueVerlauf(hoehe) {
+  const v = ctx.createLinearGradient(0, hoehe, 0, 0);
   for (let n = 0; n < ANKER.length; n++) {
     const [r, g, b] = ANKER[n]; // die drei Zahlen der Liste direkt in drei Variablen
-    verlauf.addColorStop(n / (ANKER.length - 1), `rgb(${r}, ${g}, ${b})`);
+    v.addColorStop(n / (ANKER.length - 1), `rgb(${r}, ${g}, ${b})`);
   }
+  return v;
 }
 
 function berechneAnteil() {
@@ -435,21 +535,45 @@ function zeichneSpektrogramm() {
   ctx.putImageData(spalte, canvas.width - 1, 0); // EIN Aufruf für die ganze Spalte
 }
 
-function zeichneSpektrum() {
+// Wasserfall: Frequenz waagerecht wie beim Spektrum, Zeit läuft von oben nach unten.
+// Mit Spektrum oben beginnt der Wasserfall erst bei y = oben (sonst bei 0).
+function zeichneWasserfall() {
+  // nur den Wasserfall-Streifen 1 Pixel nach unten schieben, das Spektrum oben bleibt stehen
+  // drawImage(quelle, qx, qy, qBreite, qHoehe,  zx, zy, zBreite, zHoehe): Ausschnitt → Ziel
+  const h = canvas.height - oben - 1; // Höhe, die kopiert wird (die unterste Zeile fällt raus)
+  ctx.drawImage(canvas, 0, oben, canvas.width, h, 0, oben + 1, canvas.width, h);
+
+  const pixel = zeile.data;
+  for (let x = 0; x < zeile.width; x++) {
+    const wert = lautestes(vonFach[x], bisFach[x]); // 0–255, lauter = heller
+    const p = x * 4; // wo das Pixel dieser Spalte in der Liste anfängt
+    const f = wert * 3; // wo die Farbe dieses Werts in farbenZahlen anfängt
+    pixel[p] = farbenZahlen[f];
+    pixel[p + 1] = farbenZahlen[f + 1];
+    pixel[p + 2] = farbenZahlen[f + 2];
+    pixel[p + 3] = 255; // voll deckend
+  }
+  ctx.putImageData(zeile, 0, oben); // erste Zeile des Wasserfalls (ohne Spektrum: ganz oben)
+
+  if (oben > 0) zeichneSpektrum(oben, verlaufOben); // Spektrum in den Bereich darüber
+}
+
+// Spektrum in den Bereich von y = 0 bis hoeheCanvas, mit dem passenden Farbverlauf
+function zeichneSpektrum(hoeheCanvas, farbverlauf) {
   ctx.fillStyle = "#111111";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, canvas.width, hoeheCanvas); // nur den eigenen Bereich leeren
 
   ctx.beginPath(); // EINMAL: neuer Pfad
-  ctx.moveTo(0, canvas.height); // unten links anfangen
+  ctx.moveTo(0, hoeheCanvas); // unten links anfangen
 
   for (let x = 0; x < canvas.width; x++) {
-    const hoehe = (lautestes(vonFach[x], bisFach[x]) / 255) * canvas.height; // 0–255 -> Pixel
-    ctx.lineTo(x, canvas.height - hoehe); // pro Spalte nur einen Punkt anhängen
+    const hoehe = (lautestes(vonFach[x], bisFach[x]) / 255) * hoeheCanvas; // 0–255 -> Pixel
+    ctx.lineTo(x, hoeheCanvas - hoehe); // pro Spalte nur einen Punkt anhängen
   }
 
-  ctx.lineTo(canvas.width, canvas.height); // unten rechts
+  ctx.lineTo(canvas.width, hoeheCanvas); // unten rechts
   ctx.closePath(); // zurück nach unten links
-  ctx.fillStyle = verlauf;
+  ctx.fillStyle = farbverlauf;
   ctx.fill(); // EINMAL füllen
 }
 
@@ -459,9 +583,31 @@ function zeichne() {
   // je nachdem wie laut
   // nur der Bereich minDecibels bis maxDecibels (Standard -100 bis -30 dB) wird auf 0–255 verteilt
   if (ansicht.value === "spektrogramm") zeichneSpektrogramm();
-  else if (ansicht.value === "spektrum") zeichneSpektrum();
+  else if (ansicht.value === "wasserfall")
+    zeichneWasserfall(); // zeichnet das Spektrum oben selbst mit
+  else if (ansicht.value === "spektrum")
+    zeichneSpektrum(canvas.height, verlauf);
   laufId = requestAnimationFrame(zeichne); // die einzige Stelle mit rAF
 }
+
+// Beim Laden, einmal. Ganz unten, damit alles darüber schon fertig ist
+// (const und let gibt es erst ab ihrer Zeile, function-Deklarationen schon vorher)
+//------------------------------------------------------
+farbenGenerieren(); // Farbtabelle einmal beim Start, nicht in zeichne()
+
+tiefen.value = frequenzZuAnteil(250); // Startwerte: übliche Einteilung (Mischpult, EQ)
+hoehen.value = frequenzZuAnteil(4000);
+
+// Knöpfe erst NACH den Startwerten, sonst merkt sich der Doppelklick die Werte aus dem HTML
+macheDrehknopf(tiefen, "Tiefen bis", ZIEH_WEG, FEIN);
+macheDrehknopf(hoehen, "Höhen ab", ZIEH_WEG, FEIN);
+
+wechsleAnsicht();
+zeigeFft();
+zeigeGlaettung();
+setzeDb(minDb);
+setzeLautstaerke();
+setzeGrenzen(tiefen);
 
 const beobachter = new ResizeObserver(passeGroesseAn);
 beobachter.observe(canvas);

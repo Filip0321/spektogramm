@@ -1,3 +1,24 @@
+/*
+Spektrogramm, gestaltet nach den Regeln der Website (filip-winkler.de)
+
+  1. Nur zwei Farben: --bg und --text
+  2. Rahmen immer 1px solid currentColor, keine Rundungen
+  3. Aktiv oder darüber: Farben tauschen
+  4. Unwichtiges über Deckkraft: 0,4 aus, 0,6 Nebensache, 0,8 Text
+  5. Schrift erben mit font: inherit
+
+Einheiten, kurz erklärt
+  px   echte Bildschirmpunkte; nur für Linien (1px Rahmen)
+  rem  Schriftgröße der ganzen Seite (meist 16px). 1rem = 16px, 2rem = 32px.
+       Für Abstände: wer im Browser die Schrift größer stellt, bekommt auch mehr Platz.
+  em   Schriftgröße des Elements selbst. Gut für Dinge, die zur Schrift passen sollen
+       (Innenabstand von Knöpfen, Breite der Zahl neben dem Regler).
+  ch   Breite einer Ziffer „0“. 65ch ≈ 65 Zeichen, angenehme Zeilenlänge zum Lesen.
+  %    Anteil vom umgebenden Element.
+  vw / vh   1 % der Fensterbreite / Fensterhöhe.
+  dvh  wie vh, rechnet aber am Handy die ein- und ausfahrende Adressleiste richtig.
+*/
+
 @font-face {
   font-family: "Special Elite";
   src: url("fonts/SpecialElite-Regular.ttf") format("truetype");
@@ -7,135 +28,170 @@
 :root {
   --bg: #111111;
   --text: #dddddd;
-  color-scheme: dark;
+  color-scheme: dark; /* Browser-Bauteile (Audio-Player, Scrollbalken) dunkel */
 }
 
 * {
   margin: 0; /* überall 0 damit ich selber sagen kann wo alles ist */
   padding: 0;
-  box-sizing: border-box;
+  box-sizing: border-box; /* Breite enthält Rahmen und Innenabstand */
 }
 
 body {
-  background: var(--bg); /* background */
-  color: var(--text); /* textFarbe */
+  background: var(--bg);
+  color: var(--text);
   font-family: "Special Elite", "Courier New", monospace;
 }
 
-/* Platz zwischen Titel/Tags und dem Canvas darunter */
-.projekt-kopf {
-  margin-bottom: 2rem;
+/* hidden soll immer verstecken, auch wenn eine Regel display: flex o. Ä. setzt */
+[hidden] {
+  display: none !important;
 }
 
-.projekt-kopf .meta {
-  opacity: 0.6;
-  margin-top: 0.25rem;
-} /* alles was die Klasse "meta" hat UND in "projekt-kopf" liegt soll dunkler sein */
+/*
+Seite und Kopf
+*/
 
 .seite {
-  max-width: 60rem; /* 60 mal die basic Schriftgröße */
-  margin: 0 auto;
-  padding: 5rem 1.5rem; /* (oben, unten) (left, right) */
+  max-width: 60rem; /* 60 × Schriftgröße, damit Text nicht zu breit wird */
+  margin: 0 auto; /* links und rechts gleich viel: mittig */
+  padding: 5rem 1.5rem; /* oben/unten, links/rechts */
 }
-/* margin platz zu anderen elementen */
-/* padding ist platz zum rand des eigenen elementes */
+/* margin: Platz zu anderen Elementen, padding: Platz zum eigenen Rand */
 
 .seite h1 {
-  font-size: clamp(2rem, 8vw, 4rem);
+  font-size: clamp(2rem, 8vw, 4rem); /* mit dem Fenster wachsen, aber nur zwischen 2 und 4rem */
   margin-bottom: 2rem;
 }
-/* unter der überschrift ist 2rem platz */
-/* hier soll der Tag mit wenig abstand und Rahmen */
+
+.projekt-kopf {
+  margin-bottom: 2rem; /* Platz zwischen Titel/Tags und dem Canvas darunter */
+}
+
 .tags {
-  list-style: none; /* keine Liste - kein Punkt davor */
-  display: flex; /* werden jetzt aneinander gereiht */
+  list-style: none; /* keine Punkte vor den Einträgen */
+  display: flex; /* nebeneinander */
+  flex-wrap: wrap; /* bei zu wenig Platz in die nächste Zeile */
   gap: 0.5rem;
-  flex-wrap: wrap;
-  margin: 0.75rem 0;
+  margin-top: 0.75rem;
 }
 
 .tags li {
-  border: 1px solid currentColor; /* sehr nah an der schrift */
-  padding: 0.1rem 0.5rem; /* gibt in der Box (border) mehr platz */
+  border: 1px solid currentColor; /* Regel 2 */
+  padding: 0.1rem 0.5rem;
   font-size: 0.8rem;
-  opacity: 0.6;
+  opacity: 0.6; /* Regel 4: Nebensache */
 }
 
-/* Canvas */
+/*
+Spektrogramm: zwei Canvas genau übereinander
+--verhaeltnis = Breite / Höhe der Hauptansicht.
+  quer (Desktop, Handy gedreht): 2:1
+  hochkant: quadratisch, beim Wasserfall 3:4 (die Zeit läuft nach unten, also mehr Höhe)
+--seiten = Seitenverhältnis des ganzen Rahmens. Mit Spektrum oben wird der Rahmen
+1,25-mal so hoch, damit der Wasserfall darunter nicht kleiner wird (main.js, OBEN_ANTEIL).
+JS setzt die Klassen .wasserfall und .mit-spektrum am Rahmen (#feld).
+*/
 
 .canvas-wrapper {
-  --verhaeltnis: 1; /* Breite durch Höhe, beim Game of Life 4 / 3 */
+  --verhaeltnis: 1;
+  --seiten: var(--verhaeltnis);
 }
 
-canvas {
+.canvas-wrapper.wasserfall {
+  --verhaeltnis: 0.75; /* 3:4, hochkant */
+}
+
+@media (orientation: landscape) {
+  .canvas-wrapper,
+  .canvas-wrapper.wasserfall {
+    --verhaeltnis: 2;
+  }
+}
+
+.canvas-wrapper.mit-spektrum {
+  --seiten: calc(var(--verhaeltnis) / 1.25); /* gleiche Breite, 1,25-fache Höhe */
+}
+
+.spektro {
+  position: relative; /* Bezugspunkt für die beiden Canvas */
+  width: 100%;
+  aspect-ratio: var(--seiten); /* Höhe ergibt sich aus der Breite */
+  border: 1px solid currentColor; /* Regel 2: Rahmen wie alles andere */
+}
+
+.spektro canvas {
+  position: absolute;
+  inset: 0; /* oben, rechts, unten, links = 0: füllt den Rahmen */
   display: block;
   width: 100%;
-  height: auto;
-  aspect-ratio: var(--verhaeltnis);
-  cursor: crosshair;
-  touch-action: none; /* Finger ziehen und zoomen im Canvas, statt die Seite zu scrollen */
+  height: 100%;
+  touch-action: none; /* Finger im Canvas scrollen nicht die Seite */
 }
 
-/* Steuerung */
+#skala {
+  pointer-events: none; /* Klicks gehen durch zum Spektrogramm darunter */
+}
+
+/*
+Bedienung in Gruppen
+*/
+
+.gruppe {
+  font-size: 0.9rem;
+  font-weight: normal;
+  margin-top: 2rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid currentColor;
+  opacity: 0.6; /* Regel 4: Überschrift ist Orientierung, nicht Inhalt */
+}
 
 .steuerung {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 0.8rem 0;
+  gap: 0.75rem 0.5rem; /* zwischen Zeilen, zwischen Spalten */
+  margin-top: 1rem;
 }
 
 .steuerung label {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
 }
 
-.steuerung button,
-.steuerung input {
-  font: inherit;
+/* Knöpfe */
+.steuerung button {
+  font: inherit; /* Regel 5 */
   color: inherit;
   background: none;
   border: 1px solid currentColor;
-}
-
-.steuerung button {
   padding: 0.4rem 0.9rem;
   cursor: pointer;
 }
 
-.steuerung input {
-  width: 7.5rem;
-  padding: 0.3rem 0.5rem;
-}
-
-.steuerung input[type="checkbox"],
-.steuerung input[type="range"] {
-  width: auto;
-  border: none;
-  padding: 0;
-  accent-color: var(--text);
-}
-
 .steuerung button:hover,
-.steuerung button:focus-visible,
-.steuerung button[aria-pressed="true"] {
-  background: var(--text);
+.steuerung button:focus-visible {
+  background: var(--text); /* Regel 3: Farben tauschen */
   color: var(--bg);
 }
 
 /*
 Regler (range) mit Zahl: Text oben, darunter Regler über die ganze Breite,
 rechts daneben die Zahl mit fester Breite. So schiebt eine längere Zahl
-den Regler nicht hin und her, am Desktop und am Handy hochkant gleich.
+den Regler nicht hin und her.
 
-  Länge
-  ---------------------------  20000
+  Glättung
+  ●━━━━━━━━━━━━━━━━━━━━━━━━  0,8
 */
+
+input[type="range"],
+input[type="checkbox"] {
+  accent-color: var(--text); /* Regler und Häkchen in Textfarbe statt Browser-Blau */
+}
 
 .steuerung label:has(> input[type="range"]) {
   display: grid;
-  grid-template-columns: 1fr 5em; /* Regler bekommt den Rest, Zahl immer 5 Zeichen breit */
+  grid-template-columns: 1fr 5.5em; /* Regler bekommt den Rest, Zahl immer gleich breit */
   align-items: center;
   column-gap: 0.75rem;
   row-gap: 0.2rem;
@@ -154,11 +210,64 @@ den Regler nicht hin und her, am Desktop und am Handy hochkant gleich.
   grid-column: 2;
   text-align: right;
   font-variant-numeric: tabular-nums; /* alle Ziffern gleich breit, die Zahl zittert nicht */
+  white-space: nowrap; /* „4 kHz“ nicht umbrechen */
 }
 
-/* Regler ohne Zahl: über beide Spalten */
-.steuerung label:not(:has(> output)) > input[type="range"] {
-  grid-column: 1 / -1;
+/* Auswahl: eigener Pfeil statt dem des Betriebssystems */
+select {
+  font: inherit;
+  color: inherit;
+  background-color: transparent;
+  border: 1px solid currentColor;
+  border-radius: 0; /* Regel 2: keine Rundungen */
+  padding: 0.3em 2em 0.3em 0.5em; /* rechts Platz für den Pfeil */
+  cursor: pointer;
+
+  appearance: none; /* den Pfeil des Betriebssystems entfernen */
+  background-image: /* zwei schräge Hälften ergeben ein kleines ⌄ */
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    right 0.9em center,
+    right 0.6em center;
+  background-size: 0.3em 0.3em;
+  background-repeat: no-repeat;
+}
+
+select option {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Datei öffnen: das echte Feld liegt unsichtbar über dem Knopf */
+.datei-knopf {
+  position: relative;
+  display: inline-block;
+  border: 1px solid currentColor;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+}
+
+.datei-knopf:hover,
+.datei-knopf:focus-within {
+  background: var(--text); /* Regel 3 */
+  color: var(--bg);
+}
+
+.datei-knopf input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0; /* unsichtbar, aber klickbar */
+  cursor: pointer;
+}
+
+/* der Audio-Player des Browsers: volle Breite, sonst lässt er sich kaum gestalten */
+audio {
+  display: block;
+  width: 100%;
+  margin-top: 1rem;
 }
 
 /*
@@ -178,7 +287,7 @@ und nicht winzig. Hochkant bleibt alles untereinander.
     max-width: 120rem;
     padding: 2rem 1.5rem;
     display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
+    grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr); /* links 2 Teile, rechts 1 Teil, aber mind. 16rem */
     grid-template-rows: auto 1fr;
     grid-template-areas:
       "feld kopf"
@@ -189,6 +298,7 @@ und nicht winzig. Hochkant bleibt alles untereinander.
 
   .werkbank .projekt-kopf {
     grid-area: kopf;
+    margin-bottom: 0;
   }
 
   .werkbank h1 {
@@ -196,60 +306,117 @@ und nicht winzig. Hochkant bleibt alles untereinander.
     margin-bottom: 1rem;
   }
 
-  .werkbank .projekt-kopf {
-    margin-bottom: 1rem;
+  .werkbank .bedienung {
+    grid-area: bedienung;
+  }
+
+  .werkbank .gruppe:first-of-type {
+    margin-top: 1rem;
   }
 
   /* der Wrapper ist so hoch wie der Bildschirm (minus Rand) und bleibt stehen,
-     der Canvas sitzt darin waagerecht und senkrecht in der Mitte */
+     das Spektrogramm sitzt darin waagerecht und senkrecht in der Mitte */
   .werkbank .canvas-wrapper {
     grid-area: feld;
     position: sticky; /* bleibt stehen, wenn man rechts scrollt */
     top: 2rem;
     height: calc(100vh - 4rem);
-    height: calc(100dvh - 4rem);
+    height: calc(100dvh - 4rem); /* ältere Browser nehmen die Zeile drüber */
     display: flex;
     align-items: center; /* senkrecht mittig */
     justify-content: center; /* waagerecht mittig */
   }
 
-  .werkbank .bedienung {
-    grid-area: bedienung;
-  }
-
-  /* nie höher als der Bildschirm: Höhe = Breite / Verhältnis */
-  .werkbank canvas {
-    width: min(100%, calc((100vh - 4rem) * var(--verhaeltnis)));
-    width: min(100%, calc((100dvh - 4rem) * var(--verhaeltnis))); /* dvh: Handy-Adressleiste mitgerechnet, ältere Browser nehmen die Zeile drüber */
-    margin: 0 auto;
-  }
-
-  .werkbank .steuerung {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .werkbank .steuerung label {
-    justify-content: space-between; /* Text links, Feld rechts */
-  }
-
-  /* Häkchen gehören direkt vor ihren Text, nicht ans andere Ende */
-  .werkbank .steuerung label:has(> input[type="checkbox"]) {
-    justify-content: flex-start;
+  /* nie höher als der Bildschirm: Breite höchstens Bildschirmhöhe × Verhältnis */
+  .werkbank .spektro {
+    width: min(100%, calc((100vh - 4rem) * var(--seiten)));
+    width: min(100%, calc((100dvh - 4rem) * var(--seiten)));
   }
 }
 
-.spektro {
-  position: relative;      /* Bezugspunkt für die beiden Canvas */
-  width: 100%;
-  aspect-ratio: 2 / 1;     /* oder eine feste Höhe, wie du willst */
-}
-.spektro canvas {
+/*
+Drehknopf (main.js, macheDrehknopf): der Regler bleibt im HTML, wird aber unsichtbar,
+daneben sitzt der Knopf. Links der Knopf über zwei Zeilen, rechts Text und Zahl:
+
+  ◯  Tiefen bis
+     250 Hz
+*/
+
+/* Der Regler bleibt im Dokument (er hält den Wert), ist aber unsichtbar.
+   Nicht display: none, sonst gibt es ihn für Screenreader und Formulare nicht mehr */
+.regler-versteckt {
   position: absolute;
-  inset: 0;                /* oben, rechts, unten, links = 0: füllt den Rahmen */
-  width: 100%;
-  height: 100%;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%); /* alles wegschneiden */
+  white-space: nowrap;
+  border: 0;
 }
-#skala {
-  pointer-events: none;    /* Klicks gehen durch zum Spektrogramm darunter */
+
+/* Muss mindestens so genau sein wie die Regel .steuerung label:has(...) oben,
+   sonst gewinnt die und das Raster bleibt das alte */
+.steuerung label.mit-knopf:has(> input[type="range"]) {
+  position: relative; /* der unsichtbare Regler bleibt im Label statt irgendwo auf der Seite */
+  grid-template-columns: auto 1fr; /* Knopf so breit wie er ist, Text bekommt den Rest */
+  grid-template-rows: auto auto;
+  flex: 1 1 8rem; /* Knöpfe nebeneinander statt je eine ganze Zeile, mind. 8rem breit */
+}
+
+/* Die Knöpfe sollen zusammen in einer eigenen Zeile stehen. Flexbox kennt keinen
+   Zeilenumbruch "vor" einem Element, also macht das Element davor die Zeile voll:
+   ein Label mit Auswahl, hinter dem (~ = irgendwo danach) Knöpfe kommen (hier: Hören) */
+.steuerung label:has(> select):has(~ .mit-knopf) {
+  flex-basis: 100%;
+}
+
+.steuerung .mit-knopf > output {
+  grid-row: 2;
+  grid-column: 2;
+  text-align: left;
+  opacity: 0.8; /* Regel 4 */
+}
+
+/* .steuerung .knopf statt nur .knopf: sonst gewinnt ".steuerung button" (genauer)
+   und gibt dem Knopf den Innenabstand der normalen Knöpfe, dann ist er eiförmig */
+.steuerung .knopf {
+  grid-row: 1 / span 2; /* über beide Zeilen */
+  grid-column: 1;
+  position: relative; /* Bezugspunkt für den Strich */
+  width: 2.75rem; /* 44px bei normaler Schrift, wächst mit, wenn man sie größer stellt */
+  height: 2.75rem;
+  padding: 0;
+  border: 1px solid currentColor;
+  border-radius: 50%; /* Ausnahme von Regel 2: ein Drehknopf ist rund */
+  background: transparent;
+  color: inherit;
+  touch-action: none; /* Ziehen mit dem Finger scrollt nicht die Seite */
+  cursor: ns-resize; /* Pfeil hoch/runter: zeigt, dass man senkrecht zieht */
+}
+
+/* Regel 3: darüber oder ausgewählt Farben tauschen, der Strich tauscht mit (currentColor) */
+.steuerung .knopf:hover,
+.steuerung .knopf:focus-visible {
+  background: var(--text);
+  color: var(--bg);
+}
+
+/* Der Strich zeigt die Stellung. Sein unteres Ende sitzt genau im Mittelpunkt,
+   um diesen Punkt dreht er sich:
+     1. top/left 50 %: die linke obere Ecke des Strichs liegt im Mittelpunkt
+     2. translate(-50 %, -100 %): halb nach links, ganz nach oben, jetzt liegt
+        das untere Ende in der Mitte
+     3. rotate dreht um transform-origin 50 % 100 % = das untere Ende,
+        das bleibt dabei in der Mitte liegen */
+.steuerung .knopf::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2px;
+  height: 40%; /* vom Mittelpunkt fast bis zum Rand */
+  background: currentColor;
+  transform-origin: 50% 100%;
+  transform: translate(-50%, -100%) rotate(var(--winkel, -135deg));
 }
