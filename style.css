@@ -334,13 +334,51 @@ und nicht winzig. Hochkant bleibt alles untereinander.
   }
 }
 
-/*
-Drehknopf (main.js, macheDrehknopf): der Regler bleibt im HTML, wird aber unsichtbar,
-daneben sitzt der Knopf. Links der Knopf über zwei Zeilen, rechts Text und Zahl:
+/* Meldung (z. B. Mikrofon verweigert): Rahmen wie alles, Text etwas zurück */
+.meldung {
+  margin-top: 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid currentColor;
+  opacity: 0.8; /* Regel 4 */
+}
 
-  ◯  Tiefen bis
-     250 Hz
-*/
+.pult {
+  display: grid;
+  grid-template-columns: 1fr auto; /* Knöpfe bekommen den Rest, Fader so breit wie nötig */
+  column-gap: 1rem;
+  margin-top: 1rem;
+  /* align-items bleibt "stretch": der Fader wird so hoch wie das Knopf-Raster */
+}
+
+/* auto-fill + minmax: so viele Spalten, wie mit mindestens 6rem hineinpassen.
+   Handy 2 Spalten, Desktop 3, ohne eine einzige Media Query */
+.knoepfe {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
+  gap: 1rem 0.25rem; /* zwischen Zeilen, zwischen Spalten */
+}
+
+/* ein Knopf-Feld: alles untereinander und mittig */
+.knoepfe label {
+  position: relative; /* der unsichtbare Regler bleibt im Label statt irgendwo auf der Seite */
+  display: grid;
+  justify-items: center; /* waagerecht mittig */
+  row-gap: 0.3rem;
+  font-size: 0.8rem; /* "Schwarzpunkt" muss in 6rem passen */
+  text-align: center;
+}
+
+/* order: im Raster nach vorne, also über den Namen, obwohl er im HTML dahinter steht */
+.knoepfe .knopf {
+  order: -1;
+}
+
+.knoepfe output,
+.fader-feld output {
+  opacity: 0.8; /* Regel 4 */
+  font-variant-numeric: tabular-nums; /* alle Ziffern gleich breit */
+  white-space: nowrap;
+}
 
 /* Der Regler bleibt im Dokument (er hält den Wert), ist aber unsichtbar.
    Nicht display: none, sonst gibt es ihn für Screenreader und Formulare nicht mehr */
@@ -355,61 +393,41 @@ daneben sitzt der Knopf. Links der Knopf über zwei Zeilen, rechts Text und Zahl
   border: 0;
 }
 
-/* Muss mindestens so genau sein wie die Regel .steuerung label:has(...) oben,
-   sonst gewinnt die und das Raster bleibt das alte */
-.steuerung label.mit-knopf:has(> input[type="range"]) {
-  position: relative; /* der unsichtbare Regler bleibt im Label statt irgendwo auf der Seite */
-  grid-template-columns: auto 1fr; /* Knopf so breit wie er ist, Text bekommt den Rest */
-  grid-template-rows: auto auto;
-  flex: 1 1 8rem; /* Knöpfe nebeneinander statt je eine ganze Zeile, mind. 8rem breit */
-}
-
-/* Die Knöpfe sollen zusammen in einer eigenen Zeile stehen. Flexbox kennt keinen
-   Zeilenumbruch "vor" einem Element, also macht das Element davor die Zeile voll:
-   ein Label mit Auswahl, hinter dem (~ = irgendwo danach) Knöpfe kommen (hier: Hören) */
-.steuerung label:has(> select):has(~ .mit-knopf) {
-  flex-basis: 100%;
-}
-
-.steuerung .mit-knopf > output {
-  grid-row: 2;
-  grid-column: 2;
-  text-align: left;
-  opacity: 0.8; /* Regel 4 */
-}
-
-/* .steuerung .knopf statt nur .knopf: sonst gewinnt ".steuerung button" (genauer)
-   und gibt dem Knopf den Innenabstand der normalen Knöpfe, dann ist er eiförmig */
-.steuerung .knopf {
-  grid-row: 1 / span 2; /* über beide Zeilen */
-  grid-column: 1;
-  position: relative; /* Bezugspunkt für den Strich */
-  width: 2.75rem; /* 44px bei normaler Schrift, wächst mit, wenn man sie größer stellt */
-  height: 2.75rem;
+/* Gemeinsam für Knopf und Fader: Browser-Aussehen der Schaltfläche weg.
+   .bedienung davor, damit es genauer ist als ".steuerung button" (sonst gewinnt das) */
+.bedienung .knopf,
+.bedienung .fader {
   padding: 0;
-  border: 1px solid currentColor;
-  border-radius: 50%; /* Ausnahme von Regel 2: ein Drehknopf ist rund */
   background: transparent;
   color: inherit;
   touch-action: none; /* Ziehen mit dem Finger scrollt nicht die Seite */
   cursor: ns-resize; /* Pfeil hoch/runter: zeigt, dass man senkrecht zieht */
 }
 
+/* Drehknopf */
+.bedienung .knopf {
+  position: relative; /* Bezugspunkt für den Strich */
+  width: 2.75rem; 
+  height: 2.75rem;
+  border: 1px solid currentColor;
+  border-radius: 50%; /* rund */
+}
+
 /* Regel 3: darüber oder ausgewählt Farben tauschen, der Strich tauscht mit (currentColor) */
-.steuerung .knopf:hover,
-.steuerung .knopf:focus-visible {
+.bedienung .knopf:hover,
+.bedienung .knopf:focus-visible {
   background: var(--text);
   color: var(--bg);
 }
 
-/* Der Strich zeigt die Stellung. Sein unteres Ende sitzt genau im Mittelpunkt,
-   um diesen Punkt dreht er sich:
+/* Der Strich zeigt die Stellung. JS liefert nur --anteil (0–1), der Winkel entsteht hier:
+   -135° + Anteil × 270°, also von links unten über oben nach rechts unten.
+   Sein unteres Ende sitzt genau im Mittelpunkt, um diesen Punkt dreht er sich:
      1. top/left 50 %: die linke obere Ecke des Strichs liegt im Mittelpunkt
      2. translate(-50 %, -100 %): halb nach links, ganz nach oben, jetzt liegt
         das untere Ende in der Mitte
-     3. rotate dreht um transform-origin 50 % 100 % = das untere Ende,
-        das bleibt dabei in der Mitte liegen */
-.steuerung .knopf::before {
+     3. rotate dreht um transform-origin 50 % 100 % = das untere Ende */
+.bedienung .knopf::before {
   content: "";
   position: absolute;
   left: 50%;
@@ -418,5 +436,110 @@ daneben sitzt der Knopf. Links der Knopf über zwei Zeilen, rechts Text und Zahl
   height: 40%; /* vom Mittelpunkt fast bis zum Rand */
   background: currentColor;
   transform-origin: 50% 100%;
-  transform: translate(-50%, -100%) rotate(var(--winkel, -135deg));
+  transform: translate(-50%, -100%) rotate(calc(-135deg + var(--anteil, 0) * 270deg));
+}
+
+/* Fader und Pegel nebeneinander, beide: Name oben, Schiene, Zahl unten */
+.fader-feld {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.75rem; /* klein, sonst macht "Lautstärke" die Spalte breit und nimmt den Knöpfen Platz */
+}
+
+.fader-label,
+.pegel-feld {
+  position: relative; /* für den unsichtbaren Regler */
+  display: grid;
+  grid-template-rows: auto 1fr auto; /* Mitte (Schiene) nimmt die ganze übrige Höhe */
+  justify-items: center;
+  row-gap: 0.3rem;
+}
+
+/* Fader: die Schaltfläche ist die ganze Schiene, die Kappe sitzt darin.
+   --kappe als Variable, weil die Höhe zweimal gebraucht wird */
+.bedienung .fader {
+  --kappe: 0.9rem;
+  position: relative;
+  width: 2rem;
+  /* keine Höhe: im Raster wird er von selbst so hoch wie die Zeile (stretch),
+     also so hoch wie die Knöpfe daneben */
+  min-height: 8rem;
+  border: 0;
+}
+
+/* die Schiene: eine dünne Linie in der Mitte */
+.fader::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: currentColor;
+  opacity: 0.6; /* Regel 4: Nebensache */
+}
+
+/* 0-dB-Marke: bei -24 bis +24 dB liegt 0 genau in der Mitte des Wegs (Anteil 0,5) */
+.fader::after {
+  content: "";
+  position: absolute;
+  left: 15%;
+  right: 15%;
+  bottom: calc(0.5 * (100% - var(--kappe)) + var(--kappe) / 2);
+  height: 1px;
+  background: currentColor;
+  opacity: 0.4; /* Regel 4: aus / Hilfslinie */
+}
+
+/* Kappe: unten bei Anteil 0, oben bei 1. Weg = Schiene minus eigene Höhe,
+   sonst ragt sie oben hinaus */
+.fader-kappe {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: var(--kappe);
+  bottom: calc(var(--anteil, 0) * (100% - var(--kappe)));
+  border: 1px solid currentColor;
+  background: var(--bg); /* deckt die Schiene ab */
+}
+
+/* Regel 3 am Fader: die Kappe tauscht */
+.fader:hover .fader-kappe,
+.fader:focus-visible .fader-kappe {
+  background: var(--text);
+}
+
+/* Pegel: Rahmen, darin ein Balken von unten. Die Höhe kommt als --pegel (0–1) aus main.js.
+   scaleY statt height: der Browser muss nichts neu anordnen, nur malen (schneller, jedes Bild) */
+.pegel {
+  position: relative;
+  width: 0.5rem;
+  min-height: 8rem; /* Höhe wie beim Fader: von selbst gestreckt */
+  margin-top: 0.6rem; /* Platz für das Übersteuert-Feld darüber */
+  border: 1px solid currentColor;
+}
+
+.pegel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  transform-origin: bottom; /* von unten wachsen */
+  transform: scaleY(var(--pegel, 0));
+  opacity: 0.8;
+}
+
+/* Übersteuert: kleines Feld über dem Balken, das sich füllt (zwei Farben, kein Rot) */
+.pegel::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: -0.6rem;
+  height: 0.4rem;
+  border: 1px solid currentColor;
+}
+
+.pegel.clip::after {
+  background: currentColor;
 }

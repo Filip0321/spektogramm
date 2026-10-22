@@ -26,12 +26,28 @@
       </div>
 
       <div class="bedienung">
-        <!-- Quelle -->
+        <h2 class="gruppe">Quelle</h2>
         <div class="steuerung">
-          <label class="datei-knopf">Audio öffnen <input type="file" id="datei" accept="audio/*"></label>
+          <label>Quelle
+            <select id="quelle">
+              <option value="datei">Datei</option>
+              <option value="mikrofon">Mikrofon / Interface</option>
+            </select>
+          </label>
+          <label class="datei-knopf" id="dateiKnopf">Audio öffnen <input type="file" id="datei" accept="audio/*"></label>
+          <!-- nur bei Mikrofon sichtbar (main.js, zeigeQuelle) -->
+          <label id="eingangLabel" hidden>Eingang
+            <select id="eingang">
+              <option value="">Standard</option>
+            </select>
+          </label>
+          <label id="mithoerenLabel" hidden>
+            <input type="checkbox" id="mithoeren"> Mithören (nur mit Kopfhörer)
+          </label>
           <button type="button" id="startBtn">Start</button>
         </div>
         <audio id="spieler" controls></audio>
+        <p class="meldung" id="meldung" hidden></p>
 
         <h2 class="gruppe">Bild</h2>
         <div class="steuerung">
@@ -45,25 +61,61 @@
           <label id="spektrumObenLabel" hidden>
             <input type="checkbox" id="spektrumOben"> Spektrum oben
           </label>
+          <label id="laufrichtungLabel">Laufrichtung
+            <select id="laufrichtung">
+              <option value="schieben">schieben</option>
+              <option value="umlaufen">umlaufen</option>
+            </select>
+          </label>
           <label>FFT-Größe
             <input type="range" id="fftRegler" min="11" max="15" step="1" value="14">
             <output id="fftAnzeige"></output>
           </label>
-          <label>Glättung
-            <input type="range" id="glaettung" min="0" max="0.95" step="0.01" value="0.8">
-            <output id="glaettungAnzeige"></output>
-          </label>
-          <label>Schwarzpunkt (min dB)
-            <input type="range" id="minDb" min="-140" max="-40" step="1" value="-100">
-            <output id="minDbAnzeige"></output>
-          </label>
-          <label>Weißpunkt (max dB)
-            <input type="range" id="maxDb" min="-80" max="0" step="1" value="-30">
-            <output id="maxDbAnzeige"></output>
-          </label>
         </div>
 
-        <h2 class="gruppe">Bänder</h2>
+        <!-- Pult: links die Drehknöpfe, rechts der Fader mit Pegel (main.js macht aus
+             den Reglern Knöpfe und Fader, ohne JS bleiben es normale Regler) -->
+        <h2 class="gruppe">Pult</h2>
+        <div class="pult">
+          <div class="knoepfe">
+            <label>Glättung
+              <input type="range" id="glaettung" min="0" max="0.95" step="0.01" value="0.8">
+              <output id="glaettungAnzeige"></output>
+            </label>
+            <label>Schwarzpunkt
+              <input type="range" id="minDb" min="-140" max="-40" step="1" value="-100">
+              <output id="minDbAnzeige"></output>
+            </label>
+            <label>Weißpunkt
+              <input type="range" id="maxDb" min="-80" max="0" step="1" value="-30">
+              <output id="maxDbAnzeige"></output>
+            </label>
+            <label>Tiefen bis
+              <input type="range" id="tiefen" min="0" max="1" step="0.0001" value="0.36">
+              <output id="tiefenAnzeige"></output>
+            </label>
+            <label>Höhen ab
+              <input type="range" id="hoehen" min="0" max="1" step="0.0001" value="0.77">
+              <output id="hoehenAnzeige"></output>
+            </label>
+          </div>
+
+          <div class="fader-feld">
+            <label class="fader-label">
+              <span class="fader-titel">Lautstärke</span>
+              <input type="range" id="lautstaerke" min="-24" max="24" step="1" value="0">
+              <output id="lautstaerkeAnzeige"></output>
+            </label>
+            <!-- Pegel: wie laut die Quelle ankommt (vor Filtern und Lautstärke) -->
+            <div class="pegel-feld">
+              <span class="fader-titel">Pegel</span>
+              <span class="pegel" id="pegel" role="meter" aria-label="Eingangspegel"
+                    aria-valuemin="-60" aria-valuemax="0"></span>
+              <output id="pegelAnzeige">–∞</output>
+            </div>
+          </div>
+        </div>
+
         <div class="steuerung">
           <label>Hören
             <select id="hoeren">
@@ -72,22 +124,6 @@
               <option value="mitten">nur Mitten</option>
               <option value="hoehen">nur Höhen</option>
             </select>
-          </label>
-          <label>Tiefen bis
-            <input type="range" id="tiefen" min="0" max="1" step="0.0001" value="0.36">
-            <output id="tiefenAnzeige"></output>
-          </label>
-          <label>Höhen ab
-            <input type="range" id="hoehen" min="0" max="1" step="0.0001" value="0.77">
-            <output id="hoehenAnzeige"></output>
-          </label>
-        </div>
-
-        <h2 class="gruppe">Ton</h2>
-        <div class="steuerung">
-          <label>Lautstärke
-            <input type="range" id="lautstaerke" min="-24" max="24" step="1" value="0">
-            <output id="lautstaerkeAnzeige"></output>
           </label>
         </div>
       </div>
